@@ -12,6 +12,9 @@ class HVAE(nn.Module):
                 nn.Linear(hidden, out_dim)
             )
 
+        self.args = (n_acts, obs_dim)
+        self.kwargs = dict(act_latent=act_latent, obs_latent=obs_latent)
+
         # Action encoder
         self.action = two_layer(n_acts, act_latent*4, act_latent*2)
         self.action_mu = nn.Sequential(
@@ -117,3 +120,10 @@ class HVAE(nn.Module):
         g_kl_loss = self._kl_loss(g_mu, g_logvar)
 
         return recon_loss, a_kl_loss, g_kl_loss
+
+
+    def save(self, fname='action_enc.pt'):
+        torch.save(
+            (self.args, self.kwargs, self.state_dict()),
+            fname
+        )

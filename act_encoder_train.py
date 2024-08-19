@@ -8,7 +8,7 @@ from models.action_encoder import HVAE
 
 HP = SimpleNamespace(
     lr = 1e-3,
-    epochs = 10_000,
+    epochs = 2_000,
     batch_size = 250,
     latent_a = 64,
     latent_g = 64
@@ -29,7 +29,9 @@ def train(model: HVAE):
             print(f'[{e}] {loss.item():0.4f} (R: {rloss.item():0.4f}, A-KL: {akl.item():0.4f}, G-KL: {gkl.item():0.4f})')
 
         if e % 1_000 == 999:
-            torch.save(model, 'action_enc.pt')
+            model.save()
+
+    model.save()
 
 
 if __name__ == '__main__':
