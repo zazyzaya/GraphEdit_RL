@@ -1,4 +1,4 @@
-from .simple_actions import AddNode, DeleteNode, ChangeFeature, AcceptingEdges, NotAcceptingEdges, AddEdge
+from .simple_actions import Action, AddNode, DeleteNode, ChangeFeature, AcceptingEdges, NotAcceptingEdges, AddEdge
 from .graphlet_actions import N1, N2, N3, N4
 
 

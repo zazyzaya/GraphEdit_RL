@@ -4,9 +4,11 @@ from environment.actions.simple_actions import Action
 
 def update(g, new_x, new_edges):
     g.x = torch.cat([g.x, new_x], dim=0)
-    g.edge_index = torch.cat([g.edge_index, new_edges], dim=1)
+    g.edge_index = torch.cat([g.edge_index, new_edges.long()], dim=1)
 
 class G1(Action):
+    COST = 2
+
     # (X) -- ( )
     def execute(self, g):
         nid = g.x.size(0)
@@ -18,6 +20,8 @@ class G1(Action):
         return self.target
 
 class G2(Action):
+    COST = 4
+
     # (X) -- ( )
     #  |
     # ( )
@@ -31,6 +35,8 @@ class G2(Action):
         return self.target
 
 class G3(Action):
+    COST = 6
+
     # (X) -- ( )
     #  | \
     # ( ) ( )
@@ -44,6 +50,8 @@ class G3(Action):
         return self.target
 
 class G4(Action):
+    COST = 8
+
     # ( ) --(X) -- ( )
     #       / \
     #     ( ) ( )
@@ -57,6 +65,8 @@ class G4(Action):
         return self.target
 
 class G5(Action):
+    COST = 6
+
     # (X) -- ( )
     #  |
     # ( ) -- ( )
@@ -70,6 +80,8 @@ class G5(Action):
         return self.target
 
 class G6(Action):
+    COST = 5
+
     #    (X)
     #   /    \
     # ( ) -- ( )
@@ -86,6 +98,8 @@ class G6(Action):
         return self.target
 
 class G7(Action):
+    COST = 7
+
     #    (X) -- ( )
     #   /   \
     # ( ) -- ( )
@@ -102,6 +116,8 @@ class G7(Action):
         return self.target
 
 class G8(Action):
+    COST = 9
+
     # ( ) --(X) -- ( )
     #      /   \
     #    ( ) -- ( )
@@ -116,6 +132,8 @@ class G8(Action):
 
 
 class G9(Action):
+    COST = 7
+
     #    (X) -- ( )
     #   /      /
     # ( ) -- ( )
@@ -133,6 +151,8 @@ class G9(Action):
 
 
 class G10(Action):
+    COST = 9
+
     #( ) -- (X) -- ( )
     #      /      /
     #    ( ) -- ( )
@@ -150,6 +170,8 @@ class G10(Action):
 
 
 class G11(Action):
+    COST = 8
+
     #    (X) -- ( )
     #   /   \  /
     # ( ) -- ( )
@@ -167,6 +189,8 @@ class G11(Action):
 
 
 class G12(Action):
+    COST = 9
+
     # ( ) --(X)    ( )
     #      /   \  /
     #    ( ) -- ( )
@@ -182,6 +206,8 @@ class G12(Action):
         return self.target
 
 class G13(Action):
+    COST = 10
+
     # ( ) --(X) -- ( )
     #      /   \  /
     #    ( ) -- ( )
@@ -197,6 +223,8 @@ class G13(Action):
         return self.target
 
 class G14(Action):
+    COST = 10
+
     # ( ) -- (X) -- ( )
     #  |     /      /
     #  |  ( ) -- ( )
@@ -214,6 +242,8 @@ class G14(Action):
 
 
 class G15(Action):
+    COST = 11
+
     # ( ) -- (X) -- ( )
     #  |     /  \   /
     #  |  ( ) -- ( )
@@ -230,6 +260,8 @@ class G15(Action):
         return self.target
 
 class G16(Action):
+    COST = 8
+
     # ( )   (X) -- ( )
     #   \   /     /
     #    ( )    ( )
@@ -246,6 +278,8 @@ class G16(Action):
         return self.target
 
 class G17(Action):
+    COST = 9
+
     # ( ) -- (X) -- ( )
     #   \   /       /
     #    ( )      ( )
@@ -263,6 +297,8 @@ class G17(Action):
 
 
 class G18(Action):
+    COST = 10
+
     # ( ) -- (X) -- ( )
     #   \   /   \   /
     #    ( )     ( )
@@ -280,6 +316,8 @@ class G18(Action):
 
 
 class G19(Action):
+    COST = 9
+
     # ( ) -- (X) -- ( )
     #   \           /
     #    ( ) --- ( )
@@ -297,6 +335,8 @@ class G19(Action):
 
 
 class G20(Action):
+    COST = 10
+
     # ( ) -- (X) -- ( )
     #   \   /       /
     #    ( ) --- ( )
@@ -313,6 +353,8 @@ class G20(Action):
         return self.target
 
 class G21(Action):
+    COST = 11
+
     # ( ) -- (X) -- ( )
     #   \   /   \   /
     #    ( ) --- ( )
@@ -330,6 +372,8 @@ class G21(Action):
 
 
 class G22(Action):
+    COST = 10
+
     # ( ) -- (X) -- ( )
     #  |\   /
     #  | ( )
@@ -348,6 +392,8 @@ class G22(Action):
         return self.target
 
 class G23(Action):
+    COST = 9
+
     # ( ) -- (X)
     #  |\   / |
     #  | ( )  |
@@ -367,6 +413,8 @@ class G23(Action):
 
 
 class G24(Action):
+    COST = 11
+
     # ( ) -- (X) -- ( )
     #  |\   / |
     #  | ( )  |
@@ -386,6 +434,8 @@ class G24(Action):
 
 
 class G25(Action):
+    COST = 12
+
     # ( ) -- (X) -- ( )
     #  |\   / |     /
     #  | ( )  |    /
@@ -404,6 +454,8 @@ class G25(Action):
         return self.target
 
 class G26(Action):
+    COST = 11
+
     #       (X)
     #     / /    \
     #    /  |     \
@@ -424,6 +476,8 @@ class G26(Action):
 
 
 class G27(Action):
+    COST = 12
+
     #       (X)
     #     / / \  \
     #    /  | |   \
@@ -444,6 +498,8 @@ class G27(Action):
 
 
 class G28(Action):
+    COST = 13
+
     #        (X)
     #      / / \  \
     #     /  | |   \
@@ -465,6 +521,8 @@ class G28(Action):
 
 
 class G29(Action):
+    COST = 14
+
     # Complete graph
     def execute(self, g):
         nid = g.x.size(0)

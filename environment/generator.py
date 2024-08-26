@@ -34,7 +34,8 @@ def batch_graphs(targets,post_targets, xs, eis):
 
     return targets.long(), post_targets.long(), Data(
         x = torch.cat(xs, dim=0),
-        edge_index = torch.cat(eis, dim=1)
+        edge_index = torch.cat(eis, dim=1),
+        sizes = torch.tensor(sizes)
     )
 
 def encode_actions(actions, params):

@@ -8,7 +8,7 @@ from models.action_encoder import HVAE
 
 HP = SimpleNamespace(
     lr = 1e-3,
-    epochs = 2_000,
+    epochs = 2_500,
     batch_size = 250,
     latent_a = 64,
     latent_g = 64
