@@ -12,7 +12,7 @@ from models.ppo import GraphPPO, PPOMemory
 
 
 SEED = 1337
-MAX_EPISODE_LEN = 100
+MAX_EPISODE_LEN = 20
 GRAPH_SIZE = 3
 SIZE_VARIANCE = 0
 
@@ -33,29 +33,47 @@ def translate_action(a_idx: int) -> Action:
 
     return act(target=nid, ntype=param)
 
-def generate_cheating_episode(agent: GraphPPO, i: int, graph_size, size_var):
+def generate_cheating_episode(agent: GraphPPO, i: int, graph_size, size_var, ep_len):
     torch.set_num_threads(1)
-    n = GET_N(graph_size, size_var)
+    n0 = GET_N(graph_size, size_var)
+    n1 = GET_N(graph_size, size_var)
     env = GraphEnv(
-        n,
-        n_initial=n,
-        p = 0.1 if n > 5 else 0.5
+        n0,
+        n_initial=n1,
+        p = 0.1 if n0 > 5 else 0.5
     )
 
     s = env.reset()
     mem = PPOMemory(0)
 
-    for i in tqdm(range(random.randint(5,50)), desc=str(i)):
-        a,v,p = agent.get_action(*s)
-        act_obj = translate_action(a)
-        next_s, r, t = env.step(act_obj)
+    try:
+        for i in tqdm(range(ep_len), desc=str(i)):
+            a,v,p = agent.get_action(*s)
+            act_obj = translate_action(a)
+            next_s, r, t = env.step(act_obj)
 
-        mem.remember(s,a,v,p,r,t)
-        s = next_s
+            mem.remember(s,a,v,p,r,t)
+            s = next_s
 
-        # If we actually solved one for real
-        if t and i != MAX_EPISODE_LEN-1:
-            return mem
+            # If we actually solved one for real
+            if t and i != MAX_EPISODE_LEN-1:
+                return mem
+
+    except Exception as e:
+        # Log what caused the issue
+        with open("ErrorLog.txt", 'a') as f:
+            f.write(str(e) + '\n')
+            f.write(f'{mem.s[0][0].x}\n')
+            f.write(f'{mem.s[0][0].edge_index}\n')
+
+            for a in mem.a:
+                act_obj = translate_action(a)
+                f.write(f'{act_obj.__class__.__name__}({act_obj.target})\n')
+
+            f.write("\n\n")
+
+        # Just return empty buffer
+        return PPOMemory(0)
 
     # Take whatever state the current graph became halfway into the
     # episode, and pretend like that was the target all along
@@ -73,18 +91,33 @@ def generate_cheating_episode(agent: GraphPPO, i: int, graph_size, size_var):
 
     # Play game again, with predetermined actions that will get us to the
     # target graph at least in MAX_EPS / 2 steps (maybe sooner)
-    s = env.get_state()
-    for a in actions:
-        a,v,p = agent.take_action(*s, torch.tensor(a))
-        act_obj = translate_action(a)
-        next_s, r, t = env.step(act_obj)
+    try:
+        s = env.get_state()
+        for a in actions:
+            a,v,p = agent.take_action(*s, torch.tensor(a))
+            act_obj = translate_action(a)
+            next_s, r, t = env.step(act_obj)
 
-        mem.remember(s,a,v,p,r,t)
-        s = next_s
-        if t:
-            break
-    else:
-        print(s)
+            mem.remember(s,a,v,p,r,t)
+            s = next_s
+            if t:
+                break
+
+    except Exception as e:
+        # Log what caused the issue
+        with open("ErrorLog.txt", 'a') as f:
+            f.write(str(e) + '\n')
+            f.write(f'{mem.s[0][0].x}\n')
+            f.write(f'{mem.s[0][0].edge_index}\n')
+
+            for a in mem.a:
+                act_obj = translate_action(a)
+                f.write(f'{act_obj.__class__.__name__}({act_obj.target})\n')
+
+            f.write("\n\n")
+
+        # Just return empty buffer
+        return PPOMemory(0)
 
     return mem
 
@@ -120,25 +153,22 @@ def train(agent: GraphPPO):
 
 
     for e in range(1,HP.epochs):
-        memories = Parallel(n_jobs=HP.workers, prefer='processes')(
-            delayed(generate_episode)(agent, i, GRAPH_SIZE, SIZE_VARIANCE)
-            for i in range(HP.eps_per_update)
-        )
-        lens = [len(m.r) for m in memories]
-        avg_len = sum(lens) / HP.eps_per_update
-        avg_r = sum([sum(m.r) for m in memories]) / HP.eps_per_update
-
-        if avg_len == MAX_EPISODE_LEN:
-            print("Generating some cheating games")
-            more_memories = Parallel(n_jobs=HP.workers, prefer='processes')(
-                delayed(generate_cheating_episode)(agent, i, GRAPH_SIZE, SIZE_VARIANCE)
+        if e < 50_000:
+            ep_len = 10 + (e // 5_000)
+            memories = Parallel(n_jobs=HP.workers, prefer='processes')(
+                delayed(generate_cheating_episode)(agent, i, GRAPH_SIZE, SIZE_VARIANCE, ep_len)
                 for i in range(HP.eps_per_update)
             )
 
-            # Suppliment memories of real games with memories of
-            # games where the agent cheats and we retroactively make
-            # whatever graph it got to at ts 50 the target the whole time
-            memories += more_memories # type: ignore
+        else:
+            memories = Parallel(n_jobs=HP.workers, prefer='processes')(
+                delayed(generate_episode)(agent, i, GRAPH_SIZE, SIZE_VARIANCE)
+                for i in range(HP.eps_per_update)
+            )
+
+        lens = [len(m.r) for m in memories]
+        avg_len = sum(lens) / HP.eps_per_update
+        avg_r = sum([sum(m.r) for m in memories]) / HP.eps_per_update
 
         agent.memory = PPOMemory(HP.bs).combine(memories)
 
@@ -152,7 +182,7 @@ def train(agent: GraphPPO):
         torch.set_num_threads(32)
         agent.learn()
 
-        if e % 1_000 == 0:
+        if e % 5_000 == 0:
             GRAPH_SIZE += 1
             SIZE_VARIANCE = int(GRAPH_SIZE * 0.2)
 

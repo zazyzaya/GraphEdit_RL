@@ -1,4 +1,4 @@
-from .simple_actions import Action, AddNode, DeleteNode, ChangeFeature, AcceptingEdges, NotAcceptingEdges, AddEdge
+from .simple_actions import Action, AddNode, IsolateNode, DeleteNode, ChangeFeature, AcceptingEdges, NotAcceptingEdges, AddEdge
 from .graphlet_actions import N1, N2, N3, N4
 
 
@@ -8,9 +8,10 @@ SIMPLE_ACTIONS = [
     DeleteNode,
     AcceptingEdges,
     NotAcceptingEdges,
-    AddEdge
+    AddEdge,
+    IsolateNode
 ]
-NEEDS_COLOR = lambda x : False if x in [2,3,4,5] else True
+NEEDS_COLOR = lambda x : False if x in [2,3,4,5,6] else True
 
 ACTION_TO_IDX = dict()
 for act in SIMPLE_ACTIONS:

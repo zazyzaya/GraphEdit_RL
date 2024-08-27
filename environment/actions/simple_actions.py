@@ -98,9 +98,19 @@ class AddEdge(Action):
         self.COST = accepting_edges.size(0)
         return self.target
 
-class DeleteEdge(Action):
+class IsolateNode(Action):
     '''
-    Opposite of above
+    Remove all edges to/from node
     '''
     def execute(self, g):
-        pass
+        mask = (g.edge_index == self.target).sum(dim=0).bool()
+        g.edge_index = g.edge_index[:, ~mask]
+
+        # Decrement index of all nodes above target
+        g.edge_index[g.edge_index > self.target] -= 1
+
+        # Cost varies bc this is technically several edge deletions
+        # plus a node deletion
+        self.COST = mask.sum().item()
+
+        return self.target

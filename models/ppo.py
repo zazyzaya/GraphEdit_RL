@@ -230,7 +230,25 @@ class GraphPPO(nn.Module):
 
                 state_z,state_g = self.env_repr.forward(state_g, state_batch_sizes)
                 _,target_g = self.env_repr.forward(target_g, target_batch_sizes)
-                dist = self.actor(state_z, state_batch_sizes, state_g, target_g)
+
+                try:
+                    dist = self.actor(state_z, state_batch_sizes, state_g, target_g)
+                except ValueError:
+                    '''
+                    # Cannot figure out what's causing this:
+                    ValueError: Expected parameter logits (Tensor of shape (64, 330)) of distribution Categorical(logits: torch.Size([64, 330])) to satisfy the constraint IndependentConstraint(Real(), 1), but found invalid values:
+                    tensor([[nan, nan, nan,  ..., nan, nan, nan],
+                            [nan, nan, nan,  ..., nan, nan, nan],
+                            [nan, nan, nan,  ..., nan, nan, nan],
+                            ...,
+                            [nan, nan, nan,  ..., nan, nan, nan],
+                            [nan, nan, nan,  ..., nan, nan, nan],
+                            [nan, nan, nan,  ..., nan, nan, nan]], grad_fn=<SubBackward0>)
+                    '''
+                    print("Hm. Emtpy graph?")
+                    [print(s) for s in s_]
+                    continue
+
                 critic_vals = self.critic(state_g, target_g)
 
                 new_probs = dist.log_prob(torch.tensor(a_))

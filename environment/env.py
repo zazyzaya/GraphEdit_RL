@@ -1,5 +1,5 @@
 import torch
-from torch_geometric.utils import to_undirected, add_remaining_self_loops
+from torch_geometric.utils import to_undirected, add_remaining_self_loops, coalesce
 from torch_geometric.data import Data
 from torch_geometric.nn import WLConv
 
@@ -7,7 +7,7 @@ from environment.actions.simple_actions import Action
 from environment.generator import generate_sample
 
 class GraphEnv():
-    SUCCESS_REW = 1000   # Positive reward when game end reached
+    SUCCESS_REW = 100   # Positive reward when game end reached
     PEN = -1             # For now, only penalty is number of edits made
     EXTRA_PEN = -5       # Extra punishment if nodecount/edge count is off
                         # (if graphs are trivially non-isomorphic)
@@ -22,6 +22,7 @@ class GraphEnv():
         self.reset()
 
     def _clean_edge_index(self, ei):
+        ei = coalesce(ei)
         ei = to_undirected(ei)
         ei = add_remaining_self_loops(ei)[0]
         return ei

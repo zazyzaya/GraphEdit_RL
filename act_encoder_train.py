@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import torch
 from torch.optim.adam import Adam
 
-from generator import generate_rand_episode
+from environment.generator import generate_rand_episode
 from models.action_encoder import HVAE
 
 HP = SimpleNamespace(
