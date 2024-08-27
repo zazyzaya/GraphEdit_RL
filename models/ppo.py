@@ -70,7 +70,7 @@ class Actor(nn.Module):
         )
         self.action_embs = action_embs
 
-    def forward(self, z,batch_sizes, state_g, target_g):
+    def forward(self, z,batch_sizes, state_g, target_g, testing=False):
         '''
         z:          V x d_z         matrix of node embeddings for the input graphs
         batch_sizes:
@@ -230,24 +230,7 @@ class GraphPPO(nn.Module):
 
                 state_z,state_g = self.env_repr.forward(state_g, state_batch_sizes)
                 _,target_g = self.env_repr.forward(target_g, target_batch_sizes)
-
-                try:
-                    dist = self.actor(state_z, state_batch_sizes, state_g, target_g)
-                except ValueError:
-                    '''
-                    # Cannot figure out what's causing this:
-                    ValueError: Expected parameter logits (Tensor of shape (64, 330)) of distribution Categorical(logits: torch.Size([64, 330])) to satisfy the constraint IndependentConstraint(Real(), 1), but found invalid values:
-                    tensor([[nan, nan, nan,  ..., nan, nan, nan],
-                            [nan, nan, nan,  ..., nan, nan, nan],
-                            [nan, nan, nan,  ..., nan, nan, nan],
-                            ...,
-                            [nan, nan, nan,  ..., nan, nan, nan],
-                            [nan, nan, nan,  ..., nan, nan, nan],
-                            [nan, nan, nan,  ..., nan, nan, nan]], grad_fn=<SubBackward0>)
-                    '''
-                    print("Hm. Emtpy graph?")
-                    [print(s) for s in s_]
-                    continue
+                dist = self.actor(state_z, state_batch_sizes, state_g, target_g)
 
                 critic_vals = self.critic(state_g, target_g)
 

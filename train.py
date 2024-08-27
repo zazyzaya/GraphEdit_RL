@@ -20,10 +20,11 @@ GET_N = lambda gs, sv : gs + (random.randint(0, sv*2)-sv)
 
 HP = SimpleNamespace(
     epochs=100_000,
-    eps_per_update=25,
-    workers=25,
+    eps_per_update=50,
+    workers=50,
     bs = 64,
-    hidden = 256
+    hidden = 256,
+    lr = 1e-5
 )
 
 def translate_action(a_idx: int) -> Action:
@@ -43,11 +44,12 @@ def generate_cheating_episode(agent: GraphPPO, i: int, graph_size, size_var, ep_
         p = 0.1 if n0 > 5 else 0.5
     )
 
-    s = env.reset()
+    c0,g0 = env.reset()
+    s = (c0,g0)
     mem = PPOMemory(0)
 
     try:
-        for i in tqdm(range(ep_len), desc=str(i)):
+        for i in range(ep_len):
             a,v,p = agent.get_action(*s)
             act_obj = translate_action(a)
             next_s, r, t = env.step(act_obj)
@@ -63,13 +65,18 @@ def generate_cheating_episode(agent: GraphPPO, i: int, graph_size, size_var, ep_
         # Log what caused the issue
         with open("ErrorLog.txt", 'a') as f:
             f.write(str(e) + '\n')
-            f.write(f'{mem.s[0][0].x}\n')
-            f.write(f'{mem.s[0][0].edge_index}\n')
+            f.write("Goal graph:\n")
+            f.write(f'\t{g0.x}\n')
+            f.write(f'\t{g0.edge_index}\n')
+            f.write("Starting graph:\n")
+            f.write(f'{c0.x}\n')
+            f.write(f'{c0.edge_index}\n')
 
             for a in mem.a:
                 act_obj = translate_action(a)
                 f.write(f'{act_obj.__class__.__name__}({act_obj.target})\n')
 
+            f.write(f"\nModel weights: {agent.state_dict()}")
             f.write("\n\n")
 
         # Just return empty buffer
@@ -122,7 +129,7 @@ def generate_cheating_episode(agent: GraphPPO, i: int, graph_size, size_var, ep_
     return mem
 
 
-def generate_episode(agent: GraphPPO, i: int, graph_size, size_var):
+def generate_episode(agent: GraphPPO, i: int, graph_size, size_var, ep_len):
     torch.set_num_threads(1)
     n = GET_N(graph_size, size_var)
     env = GraphEnv(
@@ -134,7 +141,7 @@ def generate_episode(agent: GraphPPO, i: int, graph_size, size_var):
     s = env.reset()
     mem = PPOMemory(0)
 
-    for i in tqdm(range(MAX_EPISODE_LEN), desc=str(i)):
+    for i in range(ep_len):
         a,v,p = agent.get_action(*s)
         act_obj = translate_action(a)
         next_s, r, t = env.step(act_obj)
@@ -151,20 +158,20 @@ def train(agent: GraphPPO):
     global GRAPH_SIZE, SIZE_VARIANCE
     log = dict(lens=[], r=[])
 
+    def job_dispatcher(agent, i, gs, sv, ep_len):
+        if i%2:
+            return generate_cheating_episode(agent, i, GRAPH_SIZE, SIZE_VARIANCE, ep_len)
+        else:
+            return generate_episode(agent, i, GRAPH_SIZE, SIZE_VARIANCE, ep_len)
 
     for e in range(1,HP.epochs):
         if e < 50_000:
             ep_len = 10 + (e // 5_000)
-            memories = Parallel(n_jobs=HP.workers, prefer='processes')(
-                delayed(generate_cheating_episode)(agent, i, GRAPH_SIZE, SIZE_VARIANCE, ep_len)
-                for i in range(HP.eps_per_update)
-            )
 
-        else:
-            memories = Parallel(n_jobs=HP.workers, prefer='processes')(
-                delayed(generate_episode)(agent, i, GRAPH_SIZE, SIZE_VARIANCE)
-                for i in range(HP.eps_per_update)
-            )
+        memories = Parallel(n_jobs=HP.workers, prefer='processes')(
+            delayed(job_dispatcher)(agent, i, GRAPH_SIZE, SIZE_VARIANCE, ep_len)
+            for i in range(HP.eps_per_update)
+        )
 
         lens = [len(m.r) for m in memories]
         avg_len = sum(lens) / HP.eps_per_update
@@ -178,9 +185,10 @@ def train(agent: GraphPPO):
         torch.save(log, 'log.pt')
         agent.save()
 
-        print(f"[{e}] Avg. reward: {avg_r}, Avg. length: {avg_len}")
+        print(f"[{e}] Avg. reward: {avg_r}, Avg. length: {avg_len},", end='')
         torch.set_num_threads(32)
-        agent.learn()
+        loss = agent.learn(verbose=False)
+        print(f' Loss: {loss}')
 
         if e % 5_000 == 0:
             GRAPH_SIZE += 1
@@ -195,5 +203,5 @@ if __name__ == '__main__':
     torch.manual_seed(SEED)
 
     env = GraphEnv(GRAPH_SIZE)
-    agent = GraphPPO(env.target.x.size(1), HP.hidden, ACT_EMBS, epochs=1)
+    agent = GraphPPO(env.target.x.size(1), HP.hidden, ACT_EMBS, epochs=1, lr=HP.lr)
     train(agent)

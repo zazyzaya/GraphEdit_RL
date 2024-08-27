@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from torch_geometric.nn import SAGEConv
+from torch_geometric.nn import GINConv
 
 def pack_sequence(seq, lens):
     '''
@@ -78,13 +78,20 @@ class GraphEmbedder(nn.Module):
             [SimpleSelfAttention(out_dim, hidden, hidden)]
         )
 
+        def nn_generator(ind, hiddend, outd):
+            return nn.Sequential(
+                nn.Linear(ind, hidden),
+                nn.ReLU(),
+                nn.Linear(hidden, outd)
+            )
+
         self.gnn_layers = nn.ParameterList(
-            [SAGEConv(in_dim+hidden, hidden, aggr='sum')] +
+            [GINConv(nn_generator(in_dim+hidden, hidden, hidden))] +
             [
-                SAGEConv(hidden*2, hidden, aggr='sum')
+                GINConv(nn_generator(hidden*2, hidden, hidden))
                 for _ in range(layers-2)
             ] +
-            [SAGEConv(hidden*2, out_dim, aggr='sum')]
+            [GINConv(nn_generator(hidden*2, hidden, out_dim))]
         )
 
     def _attn_forward(self, i,x,batch_sizes,attn):
