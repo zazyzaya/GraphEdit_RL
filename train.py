@@ -20,11 +20,11 @@ GET_N = lambda gs, sv : gs + (random.randint(0, sv*2)-sv)
 
 HP = SimpleNamespace(
     epochs=100_000,
-    eps_per_update=50,
-    workers=50,
+    eps_per_update=25,
+    workers=25,
     bs = 64,
-    hidden = 256,
-    lr = 1e-5
+    hidden = 32,
+    lr = 1e-4
 )
 
 def translate_action(a_idx: int) -> Action:
@@ -159,10 +159,7 @@ def train(agent: GraphPPO):
     log = dict(lens=[], r=[])
 
     def job_dispatcher(agent, i, gs, sv, ep_len):
-        if i%2:
-            return generate_cheating_episode(agent, i, GRAPH_SIZE, SIZE_VARIANCE, ep_len)
-        else:
-            return generate_episode(agent, i, GRAPH_SIZE, SIZE_VARIANCE, ep_len)
+        return generate_episode(agent, i, gs,sv, ep_len)
 
     for e in range(1,HP.epochs):
         if e < 50_000:
@@ -203,5 +200,5 @@ if __name__ == '__main__':
     torch.manual_seed(SEED)
 
     env = GraphEnv(GRAPH_SIZE)
-    agent = GraphPPO(env.target.x.size(1), HP.hidden, ACT_EMBS, epochs=1, lr=HP.lr)
+    agent = GraphPPO(env.target.x.size(1), HP.hidden, ACT_EMBS.size(0), epochs=10, lr=HP.lr)
     train(agent)

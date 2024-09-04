@@ -55,6 +55,62 @@ class PPOMemory:
 
 
 class Actor(nn.Module):
+    def __init__(self, hidden, n_actions):
+        super().__init__()
+
+        self.action_selection = nn.Sequential(
+            nn.Linear(hidden*3, hidden*4),
+            nn.ReLU(),
+            nn.Linear(hidden*4, hidden*2),
+            nn.ReLU(),
+            nn.Linear(hidden*2, n_actions)
+        )
+        self.node_selection = nn.Sequential(
+            nn.Linear(hidden*3, hidden*4),
+            nn.ReLU(),
+            nn.Linear(hidden*4, hidden*2),
+            nn.ReLU(),
+            nn.Linear(hidden*2, 1)
+        )
+        self.n_actions = n_actions
+
+    def forward(self, z,batch_sizes, state_g, target_g):
+        '''
+        z:          V x d_z         matrix of node embeddings for the input graphs
+        batch_sizes:
+                    |G| x 1         list of graph sizes for batched graphs
+        state_g:    B x d_g         Global state vector for each graph
+        target_g:   B x d_g         Global state vector for each target graph
+        '''
+        batch_size = state_g.size(0)
+
+        sgn = torch.repeat_interleave(state_g, batch_sizes, dim=0)
+        tgn = torch.repeat_interleave(target_g, batch_sizes, dim=0)
+        query = torch.cat([z, sgn, tgn], dim=1)
+
+        # P(V)  (which node gets acted upon)
+        node_importance = self.node_selection(query)
+        node_probs,mask = pack_sequence(node_importance, batch_sizes)   # B x V_max x 1
+        node_probs[mask.squeeze(-1) == 0] = float('-inf')
+        p_of_v = torch.softmax(node_probs, dim=1)
+
+        # P(A | V)  (which action, given node V is the one selected)
+        p_action = self.action_selection(query)                         # V x A
+        p_action,mask = pack_sequence(p_action, batch_sizes)            # B x V_max x A
+        p_action[mask.squeeze(-1) == 0] = float('-inf')
+        p_of_a_given_v = torch.softmax(p_action, dim=-1).nan_to_num()  # nan to num on zero rows
+
+        p_of_v_and_a = p_of_a_given_v * p_of_v
+        p_of_v_and_a = p_of_v_and_a.reshape(
+            batch_size,
+            p_of_a_given_v.size(1)*p_of_a_given_v.size(2)
+        )
+
+        # Final distro is [P(a0,n0), P(a1,n0), ... P(ak,n0), P(a0,n1), ... ]
+        return Categorical(p_of_v_and_a)
+
+
+class DynamicActionsActor(nn.Module):
     def __init__(self, hidden, action_embs, latent=16):
         super().__init__()
 
@@ -133,7 +189,7 @@ class Critic(nn.Module):
         return self.net(x)
 
 class GraphPPO(nn.Module):
-    def __init__(self, in_dim, hidden, action_embs,
+    def __init__(self, in_dim, hidden, n_actions,
                  gamma=0.99, lmbda=0.95, clip=0.1, bs=1000, epochs=10, lr=1e-3):
         super().__init__()
         self.gamma = gamma
@@ -142,13 +198,13 @@ class GraphPPO(nn.Module):
         self.bs = bs
         self.epochs = epochs
 
-        self.args = (in_dim, hidden, action_embs)
+        self.args = (in_dim, hidden, n_actions)
         self.kwargs = dict(gamma=gamma, lmbda=lmbda, clip=clip, bs=bs, epochs=epochs, lr=lr)
         self.mse = nn.MSELoss()
 
         self.memory = PPOMemory(self.bs)
         self.env_repr = GraphEmbedder(in_dim, hidden, hidden)
-        self.actor = Actor(hidden, action_embs)
+        self.actor = Actor(hidden, n_actions)
         self.critic = Critic(hidden*2, hidden)
         self.opt = Adam(self.parameters(), lr=lr)
         self.deterministic = False
