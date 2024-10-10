@@ -1,92 +1,101 @@
-import torch
-from torch_geometric.utils import to_undirected, add_remaining_self_loops, coalesce
-from torch_geometric.data import Data
-from torch_geometric.nn import WLConv
+from copy import deepcopy
+from random import choice, randint 
 
-from environment.actions.simple_actions import Action
+from torch_geometric.data import Data 
+
+from environment.graph import Graph, Node 
 from environment.generator import generate_sample
+from environment.actions import AddNode, DeleteNode, AddEdge, DeleteEdge, ChangeFeature, SIMPLE_ACTION_MAP
 
-class GraphEnv():
-    SUCCESS_REW = 100   # Positive reward when game end reached
-    PEN = -1             # For now, only penalty is number of edits made
-    EXTRA_PEN = -5       # Extra punishment if nodecount/edge count is off
-                        # (if graphs are trivially non-isomorphic)
+X = 0; EI = 1 
+    
 
-    def __init__(self, n_target, n_initial=None, p=0.1, n_colors=5):
-        self.nt = n_target
-        self.nc = n_target if n_initial is None else n_initial
-        self.p = p
-        self.n_colors = n_colors
-        self.wl = WLConv()
+class AStarEnv(): 
+    def __init__(self, target_n, scrambles=10, p=0.1, n_colors=5): 
+        self.start = Graph(generate_sample(target_n, p), n_colors=n_colors)
+        self.end = deepcopy(self.start)
 
-        self.reset()
+        # Mutate target graph randomly to generate initial env 
+        # so we know g and target are reachable within n steps
+        # Target is strictly larger than initial graph 
+        for _ in range(scrambles): 
+            act = randint(0,3)
 
-    def _clean_edge_index(self, ei):
-        ei = coalesce(ei)
-        ei = to_undirected(ei)
-        ei = add_remaining_self_loops(ei)[0]
-        return ei
+            # Add node 
+            if act == 0: 
+                target = Node(self.end.n, randint(0, n_colors-1))
+                self.end.add_node(target)
 
-    def reset(self):
-        target_x,target_ei = generate_sample(self.nt, self.p)
-        target_ei = self._clean_edge_index(target_ei)
+            # Add edge 
+            elif act == 1: 
+                edge = (randint(0, self.end.n-1), randint(0, self.end.n-1))
+                self.end.add_edge(edge)
 
-        current_x,current_ei = generate_sample(self.nc, self.p)
-        current_ei = self._clean_edge_index(current_ei)
+            # Remove edge (Not very efficient...)
+            elif act == 2 and len(self.end.edges): 
+                edges = list(self.end.edges)
+                remove = choice(edges) 
+                self.end.remove_edge(remove)
 
-        self.target = Data(
-            x=target_x,
-            edge_index=target_ei
-        )
-        self.current = Data(
-            x=current_x,
-            edge_index=current_ei
-        )
+            # Change color 
+            else: 
+                target = randint(0, self.end.n-1)
+                c = randint(0, n_colors-1)
+                self.end.change_color(target, c)
 
-        # Need to trim off last column, as it's a feature used by
-        # agent, not the node color
-        self.target_hist = self.wl.histogram(self.wl(target_x[:, :-1], target_ei))
-        self.ts = 0
-        return self.get_state()
 
-    def set_target(self, g: Data):
-        self.target = g
-        self.target_hist = self.wl.histogram(self.wl(g.x[:, :-1], g.edge_index))
+        self.mapping = dict()
+        self.inv_mapping = dict()
 
-    def get_state(self):
-        self.current.edge_index = self._clean_edge_index(self.current.edge_index)
-        return (self.current.clone(), self.target.clone())
+    def step(self, src: Node, dst_idx: int): 
+        '''
+        Select src node to map to target node. 
+        Assumes src input has not been assigned yet 
+        
+        Returns score and is_terminal 
+        '''
+        dst = self.end.nodes[dst_idx]
+        self.mapping[src.idx] = dst_idx
+        self.inv_mapping[dst_idx] = src.idx 
+        cost = 0 
 
-    def step(self, a: Action):
-        a.execute(self.current)
-        self.current.edge_index = self._clean_edge_index(self.current.edge_index)
+        # Creating node
+        if src.idx >= self.start.n: 
+            cost += self.start.add_node(src) 
+        
+        added_src_neighbors = set([
+            n
+            for n in self.start.neighbors(src) 
+            if n in self.mapping
+        ])
+        added_dst_neighbors = set([
+            self.inv_mapping.get(n)
+            for n in self.end.neighbors(dst_idx) 
+            if n in self.inv_mapping
+        ])
 
-        # Return next_state, reward, is_terminal
-        reward = self.check_finished()
-        return self.get_state(), (-a.COST)+reward, reward > 0
+        to_add = added_dst_neighbors - added_src_neighbors
+        to_remove = added_src_neighbors - added_dst_neighbors
 
-    @torch.no_grad
-    def check_finished(self):
-        # Easy checks
-        # Check graphs have same num nodes
-        cost = 0
-        if (self.target.x.size(0) != self.current.x.size(0)):
-            cost += self.EXTRA_PEN
-        # Check graphs have same number of nodes and node types
-        if not (self.target.x[:, :-1].sum(dim=0) == self.current.x[:, :-1].sum(dim=0)).all():
-            cost += self.EXTRA_PEN
+        # Add necessary edges 
+        for n in to_add: 
+            cost += self.start.add_edge((
+                src.idx, n
+            ))
 
-        # Was trivially non-isomorphic in at least one way
-        if cost != 0:
-            return cost
+        # Remove unnecessary edges 
+        for n in to_remove: 
+            cost += self.start.remove_edge((
+                src.idx, n
+            ))
 
-        # Check graphs have same num edges
-        if (self.target.edge_index.size(1) != self.current.edge_index.size(1)):
-            return self.PEN
+        # Change color 
+        if src.color != dst.color: 
+            cost += self.start.change_color(src.idx, dst.color)
 
-        # Approximate using WL Test
-        hist = self.wl.histogram(self.wl(self.current.x[:, :-1], self.current.edge_index))
-        if hist.size(-1) != self.target_hist.size(-1):
-            return self.PEN
+        # Check if finished 
+        halt = False 
+        if len(self.mapping) == self.end.n: 
+            halt = True 
 
-        return self.SUCCESS_REW if (hist == self.target_hist).all().item() else self.PEN
+        return -cost, halt 
