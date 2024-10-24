@@ -1,3 +1,5 @@
+import torch
+
 class PPOMemory:
     def __init__(self, bs):
         self.s = []
