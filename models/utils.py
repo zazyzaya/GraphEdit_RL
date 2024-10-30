@@ -15,7 +15,7 @@ def pack_and_pad(x, batches, batch_first=False):
 
 def series_first_pack_and_pad(x, batches):
     largest = (batches[1:] - batches[:-1]).max()
-    out = torch.empty((largest, batches.size(0)-1, x.size(1)), device=x.device)
+    out = torch.zeros((largest, batches.size(0)-1, x.size(1)), device=x.device)
     mask = torch.zeros((batches.size(0)-1, largest), dtype=torch.bool, device=x.device)
 
     for i in range(batches.size(0)-1):
@@ -27,7 +27,7 @@ def series_first_pack_and_pad(x, batches):
 
 def batch_first_pack_and_pad(x, batches):
     largest = (batches[1:] - batches[:-1]).max()
-    out = torch.empty((batches.size(0)-1, largest, x.size(1)), device=x.device)
+    out = torch.zeros((batches.size(0)-1, largest, x.size(1)), device=x.device)
     mask = torch.zeros((batches.size(0)-1, largest), dtype=torch.bool, device=x.device)
 
     for i in range(batches.size(0)-1):

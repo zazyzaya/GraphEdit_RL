@@ -13,7 +13,7 @@ class Embedder(nn.Module):
     def __init__(self, n_colors, emb_dim, khops=3, heads=8, trans_layers=4, trans_dim=512, device='cpu'):
         super().__init__()
 
-        self.sage = GraphSAGE(n_colors, emb_dim, khops, emb_dim, droput=0.1, device=device)
+        self.sage = GraphSAGE(n_colors, emb_dim, khops, emb_dim, dropout=0.1)
         self.attn = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(emb_dim, heads, dim_feedforward=trans_dim, device=device),
             num_layers=trans_layers
@@ -48,6 +48,7 @@ class Actor(nn.Module):
 
         self.src_net = get_net()
         self.dst_net = get_net()
+        self.sig = nn.Sigmoid()
 
     def forward(self, z, src, dst, n_src, n_dst):
         '''
@@ -58,10 +59,12 @@ class Actor(nn.Module):
         n_dst: B-dim list of num dst nodes in batch
         '''
         src = self.src_net(z[src])
+        #src = src / (torch.norm(src, p=2, dim=-1, keepdim=True) + 1e-8)
         src_batch = num_to_batch(n_src)
         src,src_mask = pack_and_pad(src, src_batch, batch_first=True)
 
         dst = self.dst_net(z[dst])
+        #dst = dst / (torch.norm(dst, p=2, dim=-1, keepdim=True) + 1e-8)
         dst_batch = num_to_batch(n_dst)
         dst,dst_mask = pack_and_pad(dst, dst_batch, batch_first=True)
 
@@ -69,7 +72,7 @@ class Actor(nn.Module):
         if src.isnan().any() or dst.isnan().any():
             print("Hm")
 
-        probs = torch.sigmoid(src @ dst.transpose(1,2))
+        probs = src @ dst.transpose(1,2)
 
         if probs.isnan().any():
             print("Hm")
@@ -77,8 +80,8 @@ class Actor(nn.Module):
         # Mask out rows/cols coresponding to masked nodes
         # that don't matter but had to be padded in
         for i in range(probs.size(0)):
-            probs[i][n_src[i]:] = float('-inf')
-            probs[i][:, n_dst[i]:] = float('-inf')
+            probs[i][n_dst[i]:] = float('-inf')
+            probs[i][:, n_src[i]:] = float('-inf')
 
         # Flatten to B x max_src*max_dst
         probs = probs.view(probs.size(0), -1)
@@ -94,16 +97,36 @@ class Critic(nn.Module):
     def __init__(self, in_dim, hidden):
         super().__init__()
 
-        def get_net():
-            return nn.Sequential(
-                nn.Linear(in_dim, hidden),
-                nn.ReLU(),
-                nn.Linear(hidden, hidden//2),
-                nn.ReLU()
-            )
+        self.src_net = nn.Sequential(
+            nn.Linear(in_dim, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.ReLU()
+        )
+        self.dst_net = nn.Sequential(
+            nn.Linear(in_dim, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.ReLU()
+        )
 
-        self.src_net = get_net()
-        self.dst_net = get_net()
+        '''
+        # Combine src and dst for initial attention
+        self.src_dst_attn = nn.MultiheadAttention(hidden//2, 8)
+
+        self.src_kv = nn.Sequential(
+            nn.Linear(hidden//2, hidden),
+            nn.ReLU()
+        )
+
+        # Then combine output of above with single parameter for B x 1 x d output
+        self.out_attn = nn.MultiheadAttention(hidden//2, 8)
+        self.out_q = nn.Parameter(torch.empty(1,1,hidden//2))
+        torch.nn.init.xavier_normal_(self.out_q)
+        '''
+
+        # Finally, project into single dimension for output
+        self.out = nn.Linear(hidden // 2, 1)
 
     def forward(self, z, src, dst, n_src, n_dst):
         '''
@@ -114,17 +137,14 @@ class Critic(nn.Module):
         n_dst: B-dim list of num dst nodes in batch
         '''
         src = self.src_net(z[src])
+        #src = src / (torch.norm(src, p=2, dim=-1, keepdim=True) + 1e-8)
         src_batch = num_to_batch(n_src)
-        src,_ = pack_and_pad(src, src_batch, batch_first=True)
-        src = src / torch.norm(src, dim=-1, keepdim=True)
+        src,src_mask = pack_and_pad(src, src_batch, batch_first=True)
 
         dst = self.dst_net(z[dst])
+        #dst = dst / (torch.norm(dst, p=2, dim=-1, keepdim=True) + 1e-8)
         dst_batch = num_to_batch(n_dst)
-        dst,_ = pack_and_pad(dst, dst_batch, batch_first=True)
-        dst = dst / torch.norm(dst, dim=-1, keepdim=True)
-
-        # TODO find better way of estimating value from
-        # combinations. Maybe KQV where K == src, Q == dst, v is param?
+        dst,dst_mask = pack_and_pad(dst, dst_batch, batch_first=True)
 
         # Dot products of all src-dst combos
         if src.isnan().any() or dst.isnan().any():
@@ -137,13 +157,13 @@ class Critic(nn.Module):
 
         # Mask out rows/cols coresponding to masked nodes
         # that don't matter but had to be padded in
+        outs = torch.zeros(probs.size(0), 1)
         for i in range(probs.size(0)):
-            probs[i][n_src[i]:] = float('-inf')
-            probs[i][:, n_dst[i]:] = float('-inf')
+            probs[i][n_dst[i]:] = float('-inf')
+            max_dst = probs[i].max(dim=-1).values
+            outs[i] = max_dst[:n_src[i]].mean()
 
-        # Flatten to B x max_src*max_dst
-        probs = probs.view(probs.size(0), -1)
-        return probs.max(dim=1, keepdim=True).values
+        return outs
 
 
 class PPOModel(nn.Module):
@@ -179,6 +199,10 @@ class PPOModel(nn.Module):
         '''
 
         z = self.emb(g)
+
+        if z.isnan().any():
+            print("hm")
+
         probs = self.actor(z, g.src, g.dst, g.n_src, g.n_dst)
         value = self.critic(z, g.src, g.dst, g.n_src, g.n_dst)
 

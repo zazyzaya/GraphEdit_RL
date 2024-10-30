@@ -15,6 +15,7 @@ class AStarEnv():
     def __init__(self, target_n, scrambles=10, p=0.1, n_colors=5):
         self.start = Graph(generate_sample(target_n, p), n_colors=n_colors)
         self.end = deepcopy(self.start)
+        self.actual_cost = 0
         self.n_colors = n_colors
 
         # Mutate target graph randomly to generate initial env
@@ -26,24 +27,24 @@ class AStarEnv():
             # Add node
             if act == 0:
                 target = Node(self.end.n, randint(0, n_colors-1))
-                self.end.add_node(target)
+                self.actual_cost += self.end.add_node(target)
 
             # Add edge
             elif act == 1:
                 edge = (randint(0, self.end.n-1), randint(0, self.end.n-1))
-                self.end.add_edge(edge)
+                self.actual_cost += self.end.add_edge(edge)
 
             # Remove edge (Not very efficient...)
             elif act == 2 and len(self.end.edges):
                 edges = list(self.end.edges)
                 remove = choice(edges)
-                self.end.remove_edge(remove)
+                self.actual_cost += self.end.remove_edge(remove)
 
             # Change color
             else:
                 target = randint(0, self.end.n-1)
                 c = randint(0, n_colors-1)
-                self.end.change_color(target, c)
+                self.actual_cost += self.end.change_color(target, c)
 
 
         self.mapping = dict()
@@ -105,7 +106,7 @@ class AStarEnv():
         if src.color != dst.color:
             cost += self.start.change_color(src.idx, dst.color)
 
-        return cost
+        return cost / self.actual_cost
 
     def step(self, src_idx, dst_idx):
         '''
@@ -142,19 +143,21 @@ class AStarEnv():
         src = torch.tensor([i for i in range(st.x.size(0)) if i not in self.mapping])
         dst = torch.tensor([i for i in range(en.x.size(0)) if i not in self.inv_mapping])
 
+        '''
         # Add mappings as links between graphs
         map_src,map_dst = [],[]
         for src_n,dst_n in self.mapping.items():
             dst_n += offset
             map_src += [src_n,dst_n]
             map_dst += [dst_n,src_n]
+        '''
 
-        mapped_ei = torch.tensor([map_src, map_dst], dtype=torch.long)
+        #mapped_ei = torch.tensor([map_src, map_dst], dtype=torch.long)
 
         edge_index = torch.cat([
             st.edge_index,
             en.edge_index + st.x.size(0),
-            mapped_ei
+            #mapped_ei
         ], dim=1)
 
         g = Data(

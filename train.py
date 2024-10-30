@@ -6,12 +6,12 @@ import torch
 from environment.env import AStarEnv
 from models.node_mapper import PPOModel, PPOMemory
 
-GRAPH_SIZE = 10
+GRAPH_SIZE = 30
 HP = SimpleNamespace(
     epochs=1000,
-    eps_per_update=10,
-    workers=1,
-    bs=1000
+    eps_per_update=50,
+    workers=100,
+    bs=256
 )
 
 @torch.no_grad()
@@ -33,6 +33,7 @@ def generate_episode(model: PPOModel):
     return buffer
 
 def train(model, hp):
+    log = []
     for e in range(hp.epochs):
         mems = Parallel(n_jobs=hp.workers, prefer='processes')(
             delayed(generate_episode)(model)
@@ -46,7 +47,9 @@ def train(model, hp):
         model.learn()
 
         print(f'[{e+1}] Average reward: {avg_r}')
+        log.append(avg_r)
 
-torch.autograd.set_detect_anomaly(True)
-model = PPOModel(in_dim=5, hidden=256, lr=0.00003, epochs=5)
+        torch.save(log, 'logs/node_mapper.pt')
+
+model = PPOModel(in_dim=5, hidden=256, lr=0.001, epochs=5)
 train(model, HP)
