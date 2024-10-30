@@ -80,8 +80,8 @@ class Actor(nn.Module):
         # Mask out rows/cols coresponding to masked nodes
         # that don't matter but had to be padded in
         for i in range(probs.size(0)):
-            probs[i][n_dst[i]:] = float('-inf')
-            probs[i][:, n_src[i]:] = float('-inf')
+            probs[i][:, n_dst[i]:] = float('-inf')
+            probs[i][n_src[i]:] = float('-inf')
 
         # Flatten to B x max_src*max_dst
         probs = probs.view(probs.size(0), -1)
@@ -159,9 +159,9 @@ class Critic(nn.Module):
         # that don't matter but had to be padded in
         outs = torch.zeros(probs.size(0), 1)
         for i in range(probs.size(0)):
-            probs[i][n_dst[i]:] = float('-inf')
+            probs[i][:, n_dst[i]:] = float('-inf')
             max_dst = probs[i].max(dim=-1).values
-            outs[i] = max_dst[:n_src[i]].mean()
+            outs[i] = max_dst[:n_src[i]].sum()
 
         return outs
 
@@ -214,6 +214,12 @@ class PPOModel(nn.Module):
         a = probs.sample()
         a_ = self.__prob_idx_to_action(a, g.n_dst.max())
         return a_, probs.log_prob(a).item(), value.item()
+
+    @torch.no_grad()
+    def take_action(self, g, a):
+        probs, value = self.forward(g)
+        a_ = self.__action_to_prob_idx(a, g.n_dst.max())
+        return a, probs.log_prob(a_).item(), value.item()
 
     def __prob_idx_to_action(self, actions, max_dst_nodes):
         # Represent source to destination mapping 2 x B matrix of edges

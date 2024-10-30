@@ -150,10 +150,9 @@ class AStarEnv():
             dst_n += offset
             map_src += [src_n,dst_n]
             map_dst += [dst_n,src_n]
+
+        mapped_ei = torch.tensor([map_src, map_dst], dtype=torch.long)
         '''
-
-        #mapped_ei = torch.tensor([map_src, map_dst], dtype=torch.long)
-
         edge_index = torch.cat([
             st.edge_index,
             en.edge_index + st.x.size(0),
