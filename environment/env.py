@@ -12,7 +12,7 @@ X = 0; EI = 1
 
 
 class AStarEnv():
-    def __init__(self, target_n, scrambles=10, p=0.1, n_colors=5):
+    def __init__(self, target_n, scrambles=25, p=0.2, n_colors=5):
         self.start = Graph(generate_sample(target_n, p), n_colors=n_colors)
         self.end = deepcopy(self.start)
         self.actual_cost = 0
@@ -24,10 +24,12 @@ class AStarEnv():
         for _ in range(scrambles):
             act = randint(0,3)
 
-            # Add node
+            # Add node (and connect it to something)
             if act == 0:
                 target = Node(self.end.n, randint(0, n_colors-1))
                 self.actual_cost += self.end.add_node(target)
+                edge = (target.idx, randint(0, self.end.n-1))
+                self.actual_cost += self.end.add_edge(edge)
 
             # Add edge
             elif act == 1:
@@ -68,7 +70,7 @@ class AStarEnv():
             cost += self.start.add_node(src)
             cost += self.cost_function(src, dst)
 
-        return cost
+        return cost / self.actual_cost
 
     def cost_function(self, src, dst):
         '''
@@ -108,7 +110,7 @@ class AStarEnv():
 
         return cost / self.actual_cost
 
-    def step(self, src_idx, dst_idx):
+    def step(self, src_idx, dst_idx, return_state=True):
         '''
         Select src node to map to target node.
         Assumes src input has not been assigned yet
@@ -129,7 +131,9 @@ class AStarEnv():
             cost += self.add_remaining_nodes()
             halt = True
 
-        return self.state(), -cost, halt
+        if return_state:
+            return self.state(), -cost, halt
+        return None, -cost, halt
 
     def state(self):
         '''

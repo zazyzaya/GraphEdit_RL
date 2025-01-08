@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from random import random
 
 from joblib import Parallel, delayed
 import torch
@@ -10,8 +11,9 @@ from models.node_mapper import PPOModel, PPOMemory
 torch.set_num_threads(32)
 
 GRAPH_SIZE = 30
+CURRICULUM_DURATION = 1000
 HP = SimpleNamespace(
-    epochs=1000,
+    epochs=10_000,
     eps_per_update=100,
     workers=100,
     bs=256
@@ -19,6 +21,30 @@ HP = SimpleNamespace(
 
 # Greedy score: -4.225 (about 4x worse than optimal)
 
+@torch.no_grad()
+def generate_perfect_episode(model: PPOModel):
+    '''
+    Can kind of cheat, since we know original mappings
+    are i -> i. Of course, there may be even more optimal
+    mappings, but this is a good enough baseline to get
+    pretty good scores.
+    '''
+    env = AStarEnv(target_n=GRAPH_SIZE)
+    s = env.state()
+    halt = False
+    buffer = PPOMemory(bs=1)
+
+    while not halt:
+        a = torch.tensor([[0],[0]])
+        _, p, v = model.take_action(s, a)
+        src = s.src[a[0]].item()
+        dst = s.dst[a[1]].item() - s.offset
+
+        next_s, r, halt = env.step(src,dst)
+        buffer.remember(s, a, v, p, r, halt)
+        s = next_s
+
+    return buffer
 
 @torch.no_grad()
 def generate_curriculum_episode(model: PPOModel, agent: HeuristicAgent):
@@ -61,10 +87,15 @@ def generate_episode(model: PPOModel):
 
 def train(model, hp):
     def get_episodes(i, e, model):
-        if i % 10 == 9 and e < 25:
-            return generate_curriculum_episode(model, GreedyAgent())
-        else:
-            return generate_episode(model)
+        '''
+        Slowly increase probability of playing a real game
+        but takes until epoch 500 to have half real, half perfect
+        games.
+        '''
+        if e < CURRICULUM_DURATION:
+            if random() < (CURRICULUM_DURATION-e) / CURRICULUM_DURATION:
+                return generate_perfect_episode(model)
+        return generate_episode(model)
 
     log = []
     for e in range(hp.epochs):
@@ -83,6 +114,8 @@ def train(model, hp):
         log.append(avg_r)
 
         torch.save(log, 'logs/node_mapper.pt')
+        model.save('model.pt')
 
-model = PPOModel(in_dim=5, hidden=256, lr=0.001, epochs=1)
+# torch.autograd.set_detect_anomaly(True)
+model = PPOModel(in_dim=5, hidden=64, lr=0.0001, epochs=1)
 train(model, HP)

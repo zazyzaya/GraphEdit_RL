@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.distributions import Categorical
 from torch_geometric.data import Data
-from torch_geometric.nn.models import GraphSAGE
+from torch_geometric.nn.models import GIN
 from torch.optim import Adam
 
 from models.memory_buffer import PPOMemory
@@ -13,7 +13,7 @@ class Embedder(nn.Module):
     def __init__(self, n_colors, emb_dim, khops=3, heads=8, trans_layers=4, trans_dim=512, device='cpu'):
         super().__init__()
 
-        self.sage = GraphSAGE(n_colors, emb_dim, khops, emb_dim, dropout=0.1)
+        self.sage = GIN(n_colors, emb_dim, khops, emb_dim, dropout=0.1)
         self.attn = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(emb_dim, heads, dim_feedforward=trans_dim, device=device),
             num_layers=trans_layers
@@ -46,8 +46,8 @@ class Actor(nn.Module):
                 nn.ReLU(),
             )
 
-        self.src_net = get_net()
-        self.dst_net = get_net()
+        #self.src_net = get_net()
+        self.net = get_net()
         self.sig = nn.Sigmoid()
 
     def forward(self, z, src, dst, n_src, n_dst):
@@ -58,12 +58,12 @@ class Actor(nn.Module):
         n_src: B-dim list of num src nodes in batch
         n_dst: B-dim list of num dst nodes in batch
         '''
-        src = self.src_net(z[src])
+        src = self.net(z[src])
         #src = src / (torch.norm(src, p=2, dim=-1, keepdim=True) + 1e-8)
         src_batch = num_to_batch(n_src)
         src,src_mask = pack_and_pad(src, src_batch, batch_first=True)
 
-        dst = self.dst_net(z[dst])
+        dst = self.net(z[dst])
         #dst = dst / (torch.norm(dst, p=2, dim=-1, keepdim=True) + 1e-8)
         dst_batch = num_to_batch(n_dst)
         dst,dst_mask = pack_and_pad(dst, dst_batch, batch_first=True)
@@ -72,20 +72,23 @@ class Actor(nn.Module):
         if src.isnan().any() or dst.isnan().any():
             print("Hm")
 
-        probs = src @ dst.transpose(1,2)
+        #probs = src @ dst.transpose(1,2)
+        probs = -torch.cdist(src,dst)
 
         if probs.isnan().any():
             print("Hm")
 
         # Mask out rows/cols coresponding to masked nodes
         # that don't matter but had to be padded in
+        mask = torch.zeros(probs.size(), dtype=bool)
         for i in range(probs.size(0)):
-            probs[i][:, n_dst[i]:] = float('-inf')
-            probs[i][n_src[i]:] = float('-inf')
+            mask[i][:, n_dst[i]:] = True
+            mask[i][n_src[i]:] = True
+
+        probs[mask] = float('-inf')
 
         # Flatten to B x max_src*max_dst
         probs = probs.view(probs.size(0), -1)
-
         return Categorical(logits=probs)
 
 
@@ -97,33 +100,12 @@ class Critic(nn.Module):
     def __init__(self, in_dim, hidden):
         super().__init__()
 
-        self.src_net = nn.Sequential(
+        self.net = nn.Sequential(
             nn.Linear(in_dim, hidden),
             nn.ReLU(),
             nn.Linear(hidden, hidden),
             nn.ReLU()
         )
-        self.dst_net = nn.Sequential(
-            nn.Linear(in_dim, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, hidden),
-            nn.ReLU()
-        )
-
-        '''
-        # Combine src and dst for initial attention
-        self.src_dst_attn = nn.MultiheadAttention(hidden//2, 8)
-
-        self.src_kv = nn.Sequential(
-            nn.Linear(hidden//2, hidden),
-            nn.ReLU()
-        )
-
-        # Then combine output of above with single parameter for B x 1 x d output
-        self.out_attn = nn.MultiheadAttention(hidden//2, 8)
-        self.out_q = nn.Parameter(torch.empty(1,1,hidden//2))
-        torch.nn.init.xavier_normal_(self.out_q)
-        '''
 
         # Finally, project into single dimension for output
         self.out = nn.Linear(hidden // 2, 1)
@@ -136,12 +118,12 @@ class Critic(nn.Module):
         n_src: B-dim list of num src nodes in batch
         n_dst: B-dim list of num dst nodes in batch
         '''
-        src = self.src_net(z[src])
+        src = self.net(z[src])
         #src = src / (torch.norm(src, p=2, dim=-1, keepdim=True) + 1e-8)
         src_batch = num_to_batch(n_src)
         src,src_mask = pack_and_pad(src, src_batch, batch_first=True)
 
-        dst = self.dst_net(z[dst])
+        dst = self.net(z[dst])
         #dst = dst / (torch.norm(dst, p=2, dim=-1, keepdim=True) + 1e-8)
         dst_batch = num_to_batch(n_dst)
         dst,dst_mask = pack_and_pad(dst, dst_batch, batch_first=True)
@@ -150,16 +132,23 @@ class Critic(nn.Module):
         if src.isnan().any() or dst.isnan().any():
             print("Hm")
 
-        probs = src @ dst.transpose(1,2)
+        #probs = src @ dst.transpose(1,2)
+        probs = -torch.cdist(src,dst)
 
         if probs.isnan().any():
             print("Hm")
 
         # Mask out rows/cols coresponding to masked nodes
         # that don't matter but had to be padded in
+        mask = torch.zeros(probs.size(), dtype=torch.bool)
+        for i in range(probs.size(0)):
+            mask[i][:, n_dst[i]:] = True
+            mask[i][n_src[i]:] = True
+
+        probs[mask] = float('-inf')
+
         outs = torch.zeros(probs.size(0), 1)
         for i in range(probs.size(0)):
-            probs[i][:, n_dst[i]:] = float('-inf')
             max_dst = probs[i].max(dim=-1).values
             outs[i] = max_dst[:n_src[i]].sum()
 
@@ -170,6 +159,12 @@ class PPOModel(nn.Module):
     def __init__(self, in_dim, hidden, k_hops=3, layers=4, batch_size=2048,
                  lr=0.001, epochs=10, gamma=0.99, clip=0.1):
         super().__init__()
+
+        self.args = (in_dim, hidden)
+        self.kwargs = dict(
+            k_hops=k_hops, layers=layers, batch_size=batch_size,
+            lr=lr, epochs=epochs, gamma=gamma, clip=clip
+        )
 
         # Submodules
         self.emb = Embedder(in_dim, hidden, khops=k_hops)
@@ -320,3 +315,17 @@ class PPOModel(nn.Module):
         # After we have sampled our minibatches e times, clear the memory buffer
         self.memory.clear()
         return total_loss.item()
+
+    def save(self, path):
+        sd = self.state_dict()
+        torch.save(
+            (self.args, self.kwargs, sd),
+            path
+        )
+
+def load_model(path):
+    args,kwargs,sd = torch.load(path)
+    model = PPOModel(*args, **kwargs)
+    model.load_state_dict(sd)
+
+    return model
