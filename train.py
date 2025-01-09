@@ -4,11 +4,11 @@ from random import random
 from joblib import Parallel, delayed
 import torch
 
-from environment.env import AStarEnv
+from environment.env import ModelBased as AStarEnv
 from environment.heuristic_agents import HeuristicAgent, GreedyAgent
 from models.node_mapper import PPOModel, PPOMemory
 
-torch.set_num_threads(32)
+torch.set_num_threads(16)
 
 GRAPH_SIZE = 30
 CURRICULUM_DURATION = 1000
@@ -92,9 +92,9 @@ def train(model, hp):
         but takes until epoch 500 to have half real, half perfect
         games.
         '''
-        if e < CURRICULUM_DURATION:
-            if random() < (CURRICULUM_DURATION-e) / CURRICULUM_DURATION:
-                return generate_perfect_episode(model)
+        #if e < CURRICULUM_DURATION:
+        #    if random() < (CURRICULUM_DURATION-e) / CURRICULUM_DURATION:
+        #        return generate_perfect_episode(model)
         return generate_episode(model)
 
     log = []
@@ -106,16 +106,16 @@ def train(model, hp):
         avg_r = [sum(mem.r) for mem in mems]
         avg_r = sum(avg_r) / len(avg_r)
 
+        print(f'[{e+1}] Average reward: {avg_r}')
+        log.append(avg_r)
+
         buff = PPOMemory(hp.bs).load(mems)
         model.memory = buff
         model.learn()
-
-        print(f'[{e+1}] Average reward: {avg_r}')
-        log.append(avg_r)
 
         torch.save(log, 'logs/node_mapper.pt')
         model.save('model.pt')
 
 # torch.autograd.set_detect_anomaly(True)
-model = PPOModel(in_dim=5, hidden=64, lr=0.0001, epochs=1)
+model = PPOModel(in_dim=5+1, hidden=64, lr=0.0001, epochs=1)
 train(model, HP)

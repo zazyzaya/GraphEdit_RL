@@ -158,8 +158,8 @@ class AStarEnv():
         mapped_ei = torch.tensor([map_src, map_dst], dtype=torch.long)
         '''
         edge_index = torch.cat([
-            st.edge_index,
-            en.edge_index + st.x.size(0),
+            st.edge_index,                  # type: ignore
+            en.edge_index + st.x.size(0),   # type: ignore
             #mapped_ei
         ], dim=1)
 
@@ -177,3 +177,27 @@ class AStarEnv():
         )
 
         return g
+
+class ModelBased(AStarEnv):
+    def state(self):
+        s = super().state()
+        values = torch.zeros(s.src.size(0), s.dst.size(0))
+
+        for i,src_idx in enumerate(s.src):
+            for j,dst_idx in enumerate(s.dst):
+                env = deepcopy(self)
+                src = env.start.nodes[src_idx]
+                dst = env.end.nodes[dst_idx - s.offset]
+                values[i][j] = -env.cost_function(src,dst)
+
+        # Add next state avg value as a feature
+        src_feats = values.mean(dim=1)
+        dst_feats = values.mean(dim=0)
+
+        # Add them into column vector
+        new_x = torch.full((s.x.size(0),), 1.)
+        new_x[s.src] = src_feats
+        new_x[s.dst] = dst_feats
+
+        s.x = torch.cat([s.x, new_x.unsqueeze(-1)], dim=1)
+        return s
