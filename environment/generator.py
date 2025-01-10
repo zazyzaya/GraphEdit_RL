@@ -36,7 +36,10 @@ def batch_graphs(targets,post_targets, xs, eis):
         sizes = torch.tensor(sizes)
     )
 
-def generate_sample(n, p, n_colors=N_COLORS, homophily=HOMOPHILY):
+def generate_sample(n, p, n_colors=N_COLORS, homophily=HOMOPHILY, seed=None):
+    if seed is not None:
+        torch.manual_seed(seed)
+
     ei = erdos_renyi_graph(n,p)
     ei = to_undirected(ei.unique(dim=1))
     ei = add_remaining_self_loops(ei)[0]
@@ -74,7 +77,7 @@ def generate_sample(n, p, n_colors=N_COLORS, homophily=HOMOPHILY):
         # Loop again
         uncolored = x.sum(dim=1) == 0
 
-    # Flatten colors and remove self-loops 
+    # Flatten colors and remove self-loops
     x = x.nonzero()[:,1]
     ei = ei[:, ei[0] != ei[1]]
 

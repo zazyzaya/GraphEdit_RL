@@ -1,10 +1,10 @@
 from types import SimpleNamespace
-from random import random
+from random import random, randint
 
 from joblib import Parallel, delayed
 import torch
 
-from environment.env import ModelBased as AStarEnv
+from environment.env import AStarEnv
 from environment.heuristic_agents import HeuristicAgent, GreedyAgent
 from models.node_mapper import PPOModel, PPOMemory
 
@@ -69,7 +69,7 @@ def generate_curriculum_episode(model: PPOModel, agent: HeuristicAgent):
 
 @torch.no_grad()
 def generate_episode(model: PPOModel):
-    env = AStarEnv(target_n=GRAPH_SIZE)
+    env = AStarEnv(target_n=GRAPH_SIZE, seed=randint(0,9))
     s = env.state()
     halt = False
     buffer = PPOMemory(bs=1)
@@ -117,5 +117,5 @@ def train(model, hp):
         model.save('model.pt')
 
 # torch.autograd.set_detect_anomaly(True)
-model = PPOModel(in_dim=5+1, hidden=64, lr=0.0001, epochs=1)
+model = PPOModel(in_dim=5, hidden=64, lr=0.0001, epochs=1)
 train(model, HP)

@@ -6,14 +6,13 @@ from torch_geometric.data import Data
 
 from environment.graph import Graph, Node
 from environment.generator import generate_sample
-from environment.actions import AddNode, DeleteNode, AddEdge, DeleteEdge, ChangeFeature, SIMPLE_ACTION_MAP
 
 X = 0; EI = 1
 
 
 class AStarEnv():
-    def __init__(self, target_n, scrambles=25, p=0.2, n_colors=5):
-        self.start = Graph(generate_sample(target_n, p), n_colors=n_colors)
+    def __init__(self, target_n, scrambles=25, p=0.2, n_colors=5, seed=None):
+        self.start = Graph(generate_sample(target_n, p, seed=seed), n_colors=n_colors)
         self.end = deepcopy(self.start)
         self.actual_cost = 0
         self.n_colors = n_colors
